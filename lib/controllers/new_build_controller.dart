@@ -149,7 +149,7 @@ class NewBuildController extends ChangeNotifier {
       final prepare = await apiService.prepareUpload(ext: 'zip');
 
       // Step 2: Upload ZIP
-      await apiService.uploadZip(
+      final upload = await apiService.uploadZip(
         uploadUrl: prepare.uploadUrl,
         fileBytes: _selectedFile!.bytes,
         fileName: _selectedFile!.name,
@@ -157,12 +157,14 @@ class NewBuildController extends ChangeNotifier {
       _uploadProgress = 1.0;
       notifyListeners();
 
-      // Step 3: Dispatch build
+      // Step 3: Dispatch build (pass asset_id and source_url from upload)
       _state = BuildState.dispatching;
       notifyListeners();
 
       final dispatch = await apiService.dispatchJob(
         jobId: prepare.jobId,
+        assetId: upload.assetId.toString(),
+        sourceUrl: upload.sourceUrl,
         appName: _appName,
         packageName: _packageName,
         flutterVersion: _flutterVersion,

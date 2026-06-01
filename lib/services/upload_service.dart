@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
+import '../models/upload_response.dart';
 
 class UploadService {
-  Future<void> uploadWithProgress({
+  Future<UploadResponse> uploadWithProgress({
     required String uploadUrl,
     required Uint8List fileBytes,
     required String fileName,
@@ -29,5 +31,9 @@ class UploadService {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('Upload failed with status ${response.statusCode}');
     }
+
+    return UploadResponse.fromJson(
+      json.decode(response.body) as Map<String, dynamic>,
+    );
   }
 }
