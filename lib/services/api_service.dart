@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import '../app/constants.dart';
 import '../models/prepare_upload_response.dart';
+import '../models/upload_response.dart';
 import '../models/dispatch_response.dart';
 import '../models/build_status_response.dart';
 import '../models/artifact_response.dart';
@@ -25,7 +26,7 @@ class ApiService {
     );
   }
 
-  Future<void> uploadZip({
+  Future<UploadResponse> uploadZip({
     required String uploadUrl,
     required Uint8List fileBytes,
     required String fileName,
@@ -42,28 +43,36 @@ class ApiService {
     final streamedResponse = await request.send();
     final response = await http.Response.fromStream(streamedResponse);
     _checkResponse(response);
+    return UploadResponse.fromJson(
+      json.decode(response.body) as Map<String, dynamic>,
+    );
   }
 
   Future<DispatchResponse> dispatchJob({
     required String jobId,
     required String appName,
     required String packageName,
+    String? assetId,
+    String? sourceUrl,
     String flutterVersion = AppConstants.defaultFlutterVersion,
     String buildMode = 'release',
     String projectType = 'auto',
   }) async {
     final uri = Uri.parse('$_baseUrl/dispatch-job');
+    final body = <String, dynamic>{
+      'job_id': jobId,
+      'app_name': appName,
+      'package_name': packageName,
+      'flutter_version': flutterVersion,
+      'build_mode': buildMode,
+      'project_type': projectType,
+    };
+    if (assetId != null) body['asset_id'] = assetId;
+    if (sourceUrl != null) body['source_url'] = sourceUrl;
     final response = await http.post(
       uri,
       headers: {'Content-Type': 'application/json'},
-      body: json.encode({
-        'job_id': jobId,
-        'app_name': appName,
-        'package_name': packageName,
-        'flutter_version': flutterVersion,
-        'build_mode': buildMode,
-        'project_type': projectType,
-      }),
+      body: json.encode(body),
     );
     _checkResponse(response);
     return DispatchResponse.fromJson(
