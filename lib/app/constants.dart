@@ -5,7 +5,7 @@ class AppConstants {
   static const String appVersion = '1.0.0';
 
   // API base URL - point to your Cloudflare Worker
-  static const String apiBaseUrl = 'https://cloud-build-worker.example.workers.dev';
+  static const String apiBaseUrl = 'https://cloud-workflow-engine.jefflumber341.workers.dev';
 
   // Build statuses
   static const String statusCreated = 'created';
