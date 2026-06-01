@@ -1,0 +1,231 @@
+name: Build Flutter APK
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  APP_NAME: "Cloud Build Engine"
+  PACKAGE_NAME: "com.cloudbuild.flutter_temp"
+  FLUTTER_VER: "3.29.1"
+  BUILD_MODE: "release"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VER }}
+          channel: stable
+          cache: true
+
+      - name: Flutter doctor
+        run: flutter doctor -v
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android licenses
+        run: yes | sdkmanager --licenses || true
+
+      - name: Install Android SDK components
+        run: |
+          sdkmanager "platform-tools" "platforms;android-34" "platforms;android-35" \
+                     "build-tools;34.0.0" "build-tools;35.0.0" || true
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Cache Flutter pub packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: flutter-pub-${{ runner.os }}-${{ hashFiles('**/pubspec.lock') }}
+          restore-keys: flutter-pub-${{ runner.os }}-
+
+      - name: Patch gradle.properties for CI
+        run: |
+          GRADLE_PROPS="android/gradle.properties"
+          if [ -f "$GRADLE_PROPS" ]; then
+            echo "" >> "$GRADLE_PROPS"
+            echo "# CI patches" >> "$GRADLE_PROPS"
+            echo "org.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8" >> "$GRADLE_PROPS"
+            echo "android.useAndroidX=true" >> "$GRADLE_PROPS"
+            echo "android.enableJetifier=true" >> "$GRADLE_PROPS"
+            echo "Patched: $GRADLE_PROPS"
+          fi
+
+      - name: Write local.properties
+        run: |
+          FLUTTER_SDK_PATH=$(dirname $(dirname $(which flutter)))
+          ANDROID_SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          printf "sdk.dir=%s\nflutter.sdk=%s\nflutter.buildMode=%s\nflutter.versionName=1.0.0\nflutter.versionCode=1\n" \
+            "$ANDROID_SDK" "$FLUTTER_SDK_PATH" "$BUILD_MODE" > android/local.properties
+          echo "local.properties written ✓ sdk.dir=$ANDROID_SDK  flutter.sdk=$FLUTTER_SDK_PATH"
+
+      - name: Set up signing keystore
+        run: |
+          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > /tmp/release.keystore
+            echo "SIGNING_SOURCE=keystore" >> $GITHUB_ENV
+
+            cat > android/key.properties << EOF
+          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
+          keyPassword=${{ secrets.KEY_PASSWORD }}
+          keyAlias=${{ secrets.KEY_ALIAS }}
+          storeFile=/tmp/release.keystore
+          EOF
+            echo "Keystore + key.properties written ✓"
+          else
+            echo "SIGNING_SOURCE=none" >> $GITHUB_ENV
+            echo "No KEYSTORE_BASE64 secret, skipping signing setup"
+          fi
+
+      - name: Inject signing config into build.gradle.kts
+        if: env.SIGNING_SOURCE == 'keystore'
+        run: |
+          BUILD_GRADLE="android/app/build.gradle.kts"
+
+          if [ ! -f "$BUILD_GRADLE" ]; then
+            echo "No build.gradle.kts found, skipping signing injection"
+            exit 0
+          fi
+
+          # Skip if already has signing configured
+          if grep -q "storeFile\|key.properties\|release.keystore" "$BUILD_GRADLE" 2>/dev/null; then
+            echo "Signing already configured, skipping injection"
+            exit 0
+          fi
+
+          # Inject key.properties loader before android block
+          sed -i '/^android\s*{/i val kp = java.util.Properties()\nval kf = rootProject.file("key.properties")\nif (kf.exists()) kp.load(java.io.FileInputStream(kf))' "$BUILD_GRADLE"
+
+          # Add signingConfigs inside android block
+          sed -i '/^android\s*{/a\    signingConfigs {\n        create("release") {\n            keyAlias = kp["keyAlias"] as String?\n            keyPassword = kp["keyPassword"] as String?\n            storeFile = kp["storeFile"]?.let { file(it as String) }\n            storePassword = kp["storePassword"] as String?\n        }\n    }' "$BUILD_GRADLE"
+
+          # Wire signing into release buildType
+          sed -i '/signingConfig = signingConfigs.getByName("debug")/c\            signingConfig = signingConfigs.getByName("release")' "$BUILD_GRADLE"
+
+          echo "Kotlin DSL signing config injected ✓"
+
+      - name: Patch ProGuard rules for R8
+        run: |
+          find android -name "proguard-rules.pro" | while read PG; do
+            if ! grep -q "com.google.android.play.core.splitcompat" "$PG" 2>/dev/null; then
+              echo "" >> "$PG"
+              echo "# Flutter R8 compatibility (injected by CI)" >> "$PG"
+              echo "-dontwarn com.google.android.play.core.splitcompat.**" >> "$PG"
+              echo "-dontwarn com.google.android.play.core.splitinstall.**" >> "$PG"
+              echo "-dontwarn com.google.android.play.core.tasks.**" >> "$PG"
+              echo "-keep class io.flutter.** { *; }" >> "$PG"
+              echo "-keep class io.flutter.plugins.** { *; }" >> "$PG"
+              echo "-dontwarn io.flutter.embedding.**" >> "$PG"
+              echo "Patched ProGuard: $PG"
+            fi
+          done
+
+      - name: Fix Gradle wrapper
+        run: |
+          if [ -f android/gradlew ]; then
+            chmod +x android/gradlew
+          fi
+          if [ -f android/gradle/wrapper/gradle-wrapper.properties ]; then
+            sed -i 's|http://services.gradle.org|https://services.gradle.org|g' android/gradle/wrapper/gradle-wrapper.properties
+          fi
+          echo "Gradle fixes applied ✓"
+
+      - name: Install dependencies
+        run: |
+          PUB_OUTPUT=$(flutter pub get 2>&1) && PUB_OK=true || PUB_OK=false
+          echo "$PUB_OUTPUT"
+
+          if [ "$PUB_OK" = "false" ]; then
+            FIXES=$(echo "$PUB_OUTPUT" | grep -oP 'flutter pub add \K\S+' || true)
+            if [ -n "$FIXES" ]; then
+              echo "Attempting auto-fix for dependency conflicts..."
+              while IFS= read -r pkg_spec; do
+                flutter pub add "$pkg_spec" || true
+              done <<< "$FIXES"
+              flutter pub get
+            else
+              echo "pub get failed"
+              exit 1
+            fi
+          fi
+
+      - name: Build Flutter APK
+        run: |
+          echo "=== Building Flutter APK ($BUILD_MODE) ==="
+          flutter build apk \
+            --$BUILD_MODE \
+            --no-tree-shake-icons \
+            --target-platform android-arm,android-arm64,android-x64 \
+            || flutter build apk --$BUILD_MODE
+
+          echo "=== Build output ==="
+          find build -name "*.apk" -type f 2>/dev/null || true
+
+      - name: Prepare APK artifact
+        run: |
+          mkdir -p output
+
+          APK_FILE=$(find build -name "*.apk" -not -name "*unsigned*" -type f | head -n 1)
+          if [ -z "$APK_FILE" ]; then
+            APK_FILE=$(find build -name "*.apk" -type f | head -n 1)
+          fi
+
+          if [ -z "$APK_FILE" ]; then
+            echo "ERROR: No APK found after build"
+            exit 1
+          fi
+
+          SAFE_NAME=$(echo "$APP_NAME" | sed 's/[^a-zA-Z0-9._-]/_/g')
+          cp "$APK_FILE" "output/${SAFE_NAME}_${BUILD_MODE}.apk"
+          echo "APK prepared: output/${SAFE_NAME}_${BUILD_MODE}.apk"
+          ls -lh output/
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-${{ github.run_id }}
+          path: output/*.apk
+          retention-days: 30
+
+      - name: Build summary
+        if: always()
+        run: |
+          echo "## Cloud Build Engine App — Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| App name | $APP_NAME |" >> $GITHUB_STEP_SUMMARY
+          echo "| Package | $PACKAGE_NAME |" >> $GITHUB_STEP_SUMMARY
+          echo "| Flutter | $FLUTTER_VER |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build mode | $BUILD_MODE |" >> $GITHUB_STEP_SUMMARY
+          if ls output/*.apk 1>/dev/null 2>&1; then
+            echo "| Status | ✅ SUCCESS |" >> $GITHUB_STEP_SUMMARY
+            ls -lh output/
+          else
+            echo "| Status | ❌ FAILED |" >> $GITHUB_STEP_SUMMARY
+          fi
