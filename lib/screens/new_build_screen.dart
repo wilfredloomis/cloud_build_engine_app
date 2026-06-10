@@ -229,7 +229,7 @@ class _NewBuildScreenState extends State<NewBuildScreen> {
               onChanged: controller.setFlutterVersion,
               decoration: const InputDecoration(
                 labelText: 'Flutter Version',
-                hintText: '3.29.1',
+                hintText: '3.44.1',
                 prefixIcon: Icon(Icons.flutter_dash, size: 20),
                 isDense: true,
               ),

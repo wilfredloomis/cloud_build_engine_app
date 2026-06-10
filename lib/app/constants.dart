@@ -40,8 +40,8 @@ class AppConstants {
   static const int maxZipSizeMB = 100;
   static const int maxZipSizeBytes = maxZipSizeMB * 1024 * 1024;
 
-  // Default Flutter version
-  static const String defaultFlutterVersion = '3.29.1';
+  // Default Flutter version (requires Java 17, matching the CI build JDK)
+  static const String defaultFlutterVersion = '3.44.1';
 
   // Storage keys
   static const String storageKeyBuildJobs = 'build_jobs';
