@@ -45,15 +45,21 @@ class HomeController extends ChangeNotifier {
     bool changed = false;
 
     for (final job in runningJobs) {
-      if (job.runId == null) continue;
-
       try {
-        final status = await apiService.getStatus(job.runId!);
+        final status = await apiService.getStatus(
+          runId: job.runId,
+          jobId: job.jobId,
+        );
+        final resolvedRunId = status.runId ?? job.runId;
         final updated = job.copyWith(
+          runId: resolvedRunId,
+          runNumber: status.runNumber ?? job.runNumber,
           status: status.status,
           conclusion: status.conclusion,
           currentStep: status.currentStep ?? job.currentStep,
           totalSteps: status.totalSteps ?? job.totalSteps,
+          stepName: status.stepName,
+          steps: status.steps ?? job.steps,
           completedAt: status.isCompleted ? DateTime.now() : null,
           error: status.error,
         );

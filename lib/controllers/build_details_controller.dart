@@ -19,6 +19,8 @@ class BuildDetailsController extends ChangeNotifier {
   bool _isDownloading = false;
   double _downloadProgress = 0;
   String? _error;
+  String? _logs;
+  bool _isLoadingLogs = false;
 
   BuildDetailsController({
     required this.apiService,
@@ -30,18 +32,25 @@ class BuildDetailsController extends ChangeNotifier {
   bool get isDownloading => _isDownloading;
   double get downloadProgress => _downloadProgress;
   String? get error => _error;
+  String? get logs => _logs;
+  bool get isLoadingLogs => _isLoadingLogs;
 
   Future<void> loadJob(String jobId) async {
     _error = null;
+    _logs = null;
     _job = await storageService.getBuildJob(jobId);
     if (_job != null) {
-      _steps = BuildStepItem.defaultSteps();
+      _steps = _job!.steps.isNotEmpty ? _job!.steps : BuildStepItem.defaultSteps();
       notifyListeners();
 
-      if (_job!.isRunning && _job!.runId != null) {
+      if (_job!.isRunning) {
         _startPolling();
       } else if (_job!.runId != null) {
         await _fetchSteps();
+      }
+
+      if (_job!.isFailed) {
+        fetchLogs();
       }
     }
   }
@@ -53,18 +62,27 @@ class BuildDetailsController extends ChangeNotifier {
   }
 
   Future<void> _pollStatus() async {
-    if (_job?.runId == null) return;
+    if (_job == null) return;
 
     try {
-      final status = await apiService.getJobLive(_job!.runId!);
+      final status = await apiService.getJobLive(
+        runId: _job!.runId,
+        jobId: _job!.jobId,
+      );
       _updateFromStatus(status);
 
       if (status.isCompleted) {
         _pollTimer?.cancel();
         _pollTimer = null;
+
+        if (status.isSuccess && _job!.apkPath == null && !_isDownloading) {
+          downloadArtifact();
+        }
+        if (status.isFailed) {
+          fetchLogs();
+        }
       }
     } catch (e) {
-      // Don't set error on transient poll failures
       debugPrint('Poll error: $e');
     }
   }
@@ -72,11 +90,16 @@ class BuildDetailsController extends ChangeNotifier {
   void _updateFromStatus(BuildStatusResponse status) {
     if (_job == null) return;
 
+    final resolvedRunId = status.runId ?? _job!.runId;
     _job = _job!.copyWith(
+      runId: resolvedRunId,
+      runNumber: status.runNumber ?? _job!.runNumber,
       status: status.status,
       conclusion: status.conclusion,
       currentStep: status.currentStep ?? _job!.currentStep,
       totalSteps: status.totalSteps ?? _job!.totalSteps,
+      stepName: status.stepName,
+      steps: status.steps ?? _job!.steps,
       error: status.error,
       completedAt: status.isCompleted ? DateTime.now() : null,
     );
@@ -90,14 +113,97 @@ class BuildDetailsController extends ChangeNotifier {
   }
 
   Future<void> _fetchSteps() async {
-    if (_job?.runId == null) return;
+    if (_job == null) return;
 
     try {
-      final status = await apiService.getJobLive(_job!.runId!);
+      final status = await apiService.getJobLive(
+        runId: _job!.runId,
+        jobId: _job!.jobId,
+      );
       _updateFromStatus(status);
     } catch (_) {
       // Use default steps
     }
+  }
+
+  Future<void> refresh() async {
+    if (_job == null) return;
+    try {
+      final status = await apiService.getStatus(
+        runId: _job!.runId,
+        jobId: _job!.jobId,
+      );
+      _updateFromStatus(status);
+
+      if (_job!.isRunning) {
+        _startPolling();
+      }
+    } catch (e) {
+      _error = 'Refresh failed: $e';
+      notifyListeners();
+    }
+  }
+
+  Future<void> fetchLogs() async {
+    if (_isLoadingLogs) return;
+    if (_job == null) return;
+
+    _isLoadingLogs = true;
+    notifyListeners();
+
+    int retries = 0;
+    const maxRetries = 5;
+    bool done = false;
+
+    while (!done && retries <= maxRetries) {
+      if (retries > 0) {
+        await Future.delayed(const Duration(seconds: 8));
+      }
+
+      try {
+        final logsResponse = await apiService.getLogs(
+          runId: _job!.runId,
+          jobId: _job!.jobId,
+        );
+
+        if (!logsResponse.ready && retries < maxRetries) {
+          retries++;
+          continue;
+        }
+
+        final rawLogs = logsResponse.log;
+        final filtered = _filterErrorLogs(rawLogs);
+        _logs = filtered.isNotEmpty ? filtered : rawLogs;
+        _isLoadingLogs = false;
+        _error = null;
+        notifyListeners();
+        done = true;
+      } catch (e) {
+        final notReady = e.toString().contains('not ready');
+        if (notReady && retries < maxRetries) {
+          retries++;
+        } else {
+          _isLoadingLogs = false;
+          if (_logs == null) {
+            _error = 'Could not fetch logs: $e';
+          }
+          notifyListeners();
+          done = true;
+        }
+      }
+    }
+  }
+
+  String _filterErrorLogs(String rawLogs) {
+    final lines = rawLogs.split('\n');
+    final errorLines = lines.where((line) {
+      final lower = line.toLowerCase();
+      return lower.contains('error') ||
+          lower.contains('exception') ||
+          lower.contains('failed') ||
+          lower.contains('fatal');
+    }).toList();
+    return errorLines.join('\n');
   }
 
   Future<String?> downloadArtifact() async {
@@ -130,7 +236,6 @@ class BuildDetailsController extends ChangeNotifier {
       _downloadProgress = 0.9;
       notifyListeners();
 
-      // Update job with APK path
       _job = _job!.copyWith(apkPath: apkPath);
       await storageService.updateBuildJob(_job!);
 

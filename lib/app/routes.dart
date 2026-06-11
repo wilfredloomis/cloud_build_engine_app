@@ -36,7 +36,7 @@ class AppRoutes {
         final args = settings.arguments as Map<String, dynamic>;
         return MaterialPageRoute(
           builder: (_) => BuildLogsScreen(
-            runId: args['runId'] as String,
+            runId: args['runId'] as String?,
             jobId: args['jobId'] as String,
           ),
         );

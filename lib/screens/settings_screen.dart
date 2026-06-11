@@ -128,6 +128,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _aboutRow('Version', AppConstants.appVersion),
           _aboutRow('Flutter SDK', AppConstants.defaultFlutterVersion),
           _aboutRow('Max ZIP Size', '${AppConstants.maxZipSizeMB} MB'),
+          const Divider(height: 20),
+          const Text(
+            'Supported project types',
+            style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Flutter · React Native · Expo · Native Android · Capacitor · Cordova · Ionic',
+            style: TextStyle(fontSize: 12, color: AppTheme.textPrimary.withOpacity(0.8)),
+          ),
         ],
       ),
     );

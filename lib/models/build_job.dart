@@ -1,6 +1,9 @@
+import 'build_step_item.dart';
+
 class BuildJob {
   final String jobId;
   final String? runId;
+  final int? runNumber;
   final String appName;
   final String packageName;
   final String buildMode;
@@ -9,6 +12,8 @@ class BuildJob {
   final String? conclusion;
   final int currentStep;
   final int totalSteps;
+  final String? stepName;
+  final List<BuildStepItem> steps;
   final String? artifactId;
   final String? apkPath;
   final String? error;
@@ -18,6 +23,7 @@ class BuildJob {
   BuildJob({
     required this.jobId,
     this.runId,
+    this.runNumber,
     required this.appName,
     required this.packageName,
     required this.buildMode,
@@ -26,6 +32,8 @@ class BuildJob {
     this.conclusion,
     required this.currentStep,
     required this.totalSteps,
+    this.stepName,
+    this.steps = const [],
     this.artifactId,
     this.apkPath,
     this.error,
@@ -90,6 +98,7 @@ class BuildJob {
   BuildJob copyWith({
     String? jobId,
     String? runId,
+    int? runNumber,
     String? appName,
     String? packageName,
     String? buildMode,
@@ -98,6 +107,8 @@ class BuildJob {
     String? conclusion,
     int? currentStep,
     int? totalSteps,
+    String? stepName,
+    List<BuildStepItem>? steps,
     String? artifactId,
     String? apkPath,
     String? error,
@@ -107,6 +118,7 @@ class BuildJob {
     return BuildJob(
       jobId: jobId ?? this.jobId,
       runId: runId ?? this.runId,
+      runNumber: runNumber ?? this.runNumber,
       appName: appName ?? this.appName,
       packageName: packageName ?? this.packageName,
       buildMode: buildMode ?? this.buildMode,
@@ -115,6 +127,8 @@ class BuildJob {
       conclusion: conclusion ?? this.conclusion,
       currentStep: currentStep ?? this.currentStep,
       totalSteps: totalSteps ?? this.totalSteps,
+      stepName: stepName ?? this.stepName,
+      steps: steps ?? this.steps,
       artifactId: artifactId ?? this.artifactId,
       apkPath: apkPath ?? this.apkPath,
       error: error ?? this.error,
@@ -127,6 +141,7 @@ class BuildJob {
     return {
       'jobId': jobId,
       'runId': runId,
+      'runNumber': runNumber,
       'appName': appName,
       'packageName': packageName,
       'buildMode': buildMode,
@@ -135,6 +150,8 @@ class BuildJob {
       'conclusion': conclusion,
       'currentStep': currentStep,
       'totalSteps': totalSteps,
+      'stepName': stepName,
+      'steps': steps.map((s) => s.toJson()).toList(),
       'artifactId': artifactId,
       'apkPath': apkPath,
       'error': error,
@@ -144,17 +161,27 @@ class BuildJob {
   }
 
   factory BuildJob.fromJson(Map<String, dynamic> json) {
+    List<BuildStepItem> steps = [];
+    if (json['steps'] != null) {
+      steps = (json['steps'] as List)
+          .map((s) => BuildStepItem.fromJson(s as Map<String, dynamic>))
+          .toList();
+    }
+
     return BuildJob(
       jobId: json['jobId'] as String,
       runId: json['runId'] as String?,
+      runNumber: json['runNumber'] as int?,
       appName: json['appName'] as String,
-      packageName: json['packageName'] as String,
+      packageName: json['packageName'] as String? ?? '',
       buildMode: json['buildMode'] as String,
       projectType: json['projectType'] as String,
       status: json['status'] as String,
       conclusion: json['conclusion'] as String?,
       currentStep: json['currentStep'] as int? ?? 0,
       totalSteps: json['totalSteps'] as int? ?? 26,
+      stepName: json['stepName'] as String?,
+      steps: steps,
       artifactId: json['artifactId'] as String?,
       apkPath: json['apkPath'] as String?,
       error: json['error'] as String?,
