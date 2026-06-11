@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:provider/provider.dart';
 import '../app/theme.dart';
 import '../app/routes.dart';
+import '../services/api_service.dart';
+import '../services/local_storage_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -14,11 +17,19 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) {
-        Navigator.pushReplacementNamed(context, AppRoutes.home);
-      }
-    });
+    _initAndNavigate();
+  }
+
+  Future<void> _initAndNavigate() async {
+    final storage = context.read<LocalStorageService>();
+    final api = context.read<ApiService>();
+    final storedUrl = await storage.getApiUrl();
+    api.setBaseUrl(storedUrl);
+
+    await Future.delayed(const Duration(seconds: 2));
+    if (mounted) {
+      Navigator.pushReplacementNamed(context, AppRoutes.home);
+    }
   }
 
   @override

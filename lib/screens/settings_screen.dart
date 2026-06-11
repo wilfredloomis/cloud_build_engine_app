@@ -85,18 +85,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _isSaving ? null : _saveApiUrl,
-              child: _isSaving
-                  ? const SizedBox(
-                      height: 18,
-                      width: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Save'),
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _isSaving ? null : _saveApiUrl,
+                  child: _isSaving
+                      ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Save'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: _resetApiUrl,
+                child: const Text('Reset'),
+              ),
+            ],
           ),
         ],
       ),
@@ -218,6 +226,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SnackBar(content: Text('API URL saved')),
       );
     }
+  }
+
+  void _resetApiUrl() {
+    _apiUrlController.text = AppConstants.apiBaseUrl;
+    final storage = context.read<LocalStorageService>();
+    final api = context.read<ApiService>();
+    storage.setApiUrl(AppConstants.apiBaseUrl);
+    api.setBaseUrl(AppConstants.apiBaseUrl);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('API URL reset to default')),
+    );
   }
 
   Future<void> _clearHistory() async {
