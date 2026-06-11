@@ -2,14 +2,17 @@ import 'package:flutter/foundation.dart';
 import '../models/build_job.dart';
 import '../services/api_service.dart';
 import '../services/local_storage_service.dart';
+import '../services/artifact_service.dart';
 
 class HomeController extends ChangeNotifier {
   final ApiService apiService;
   final LocalStorageService storageService;
+  final ArtifactService _artifactService = ArtifactService();
 
   List<BuildJob> _jobs = [];
   bool _isLoading = false;
   String? _error;
+  final List<String> _downloadedOnResume = [];
 
   HomeController({
     required this.apiService,
@@ -19,6 +22,7 @@ class HomeController extends ChangeNotifier {
   List<BuildJob> get jobs => _jobs;
   bool get isLoading => _isLoading;
   String? get error => _error;
+  List<String> get downloadedOnResume => _downloadedOnResume;
 
   int get totalBuilds => _jobs.length;
   int get runningBuilds => _jobs.where((j) => j.isRunning).length;
@@ -78,6 +82,64 @@ class HomeController extends ChangeNotifier {
     if (changed) {
       notifyListeners();
     }
+  }
+
+  /// Called on app resume to check if any previously-running builds
+  /// have completed and are ready to download.
+  Future<void> checkAndDownloadCompleted() async {
+    await loadJobs();
+    await refreshRunningJobs();
+
+    _downloadedOnResume.clear();
+
+    final readyToDownload = _jobs.where(
+      (j) => j.isSuccess && j.apkPath == null,
+    ).toList();
+
+    for (final job in readyToDownload) {
+      if (job.runId == null) continue;
+      try {
+        final zipBytes = await apiService.downloadArtifact(
+          runId: job.runId!,
+          jobId: job.jobId,
+          prefix: 'apk',
+        );
+
+        final apkPath = await _artifactService.saveAndExtractApk(
+          zipBytes: zipBytes,
+          jobId: job.jobId,
+          appName: job.appName,
+        );
+
+        final updated = job.copyWith(apkPath: apkPath);
+        final index = _jobs.indexWhere((j) => j.jobId == job.jobId);
+        if (index >= 0) {
+          _jobs[index] = updated;
+          await storageService.updateBuildJob(updated);
+        }
+        _downloadedOnResume.add(job.appName);
+
+        // Try to delete artifact from server
+        try {
+          final artifactInfo = await apiService.getArtifactInfo(
+            runId: job.runId!,
+            jobId: job.jobId,
+            prefix: 'apk',
+          );
+          await apiService.deleteArtifact(artifactInfo.artifactId);
+        } catch (_) {}
+      } catch (_) {
+        // Skip failed downloads silently
+      }
+    }
+
+    if (_downloadedOnResume.isNotEmpty) {
+      notifyListeners();
+    }
+  }
+
+  void clearDownloadedOnResume() {
+    _downloadedOnResume.clear();
   }
 
   Future<void> deleteJob(String jobId) async {

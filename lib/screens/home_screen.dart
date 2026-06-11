@@ -14,12 +14,13 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     final controller = context.read<HomeController>();
     controller.loadJobs();
     _refreshTimer = Timer.periodic(
@@ -30,8 +31,33 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _refreshTimer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      final controller = context.read<HomeController>();
+      controller.checkAndDownloadCompleted().then((_) {
+        if (!mounted) return;
+        final downloaded = controller.downloadedOnResume;
+        if (downloaded.isNotEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                downloaded.length == 1
+                    ? '${downloaded.first} APK downloaded'
+                    : '${downloaded.length} APKs downloaded while away',
+              ),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+          controller.clearDownloadedOnResume();
+        }
+      });
+    }
   }
 
   @override
