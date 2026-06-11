@@ -1,6 +1,7 @@
 import 'build_step_item.dart';
 
 class BuildStatusResponse {
+  final String? runId;
   final String status;
   final String? conclusion;
   final int? runNumber;
@@ -11,6 +12,7 @@ class BuildStatusResponse {
   final List<BuildStepItem>? steps;
 
   BuildStatusResponse({
+    this.runId,
     required this.status,
     this.conclusion,
     this.runNumber,
@@ -35,6 +37,7 @@ class BuildStatusResponse {
     }
 
     return BuildStatusResponse(
+      runId: json['run_id'] as String?,
       status: json['status'] as String,
       conclusion: json['conclusion'] as String?,
       runNumber: json['run_number'] as int?,

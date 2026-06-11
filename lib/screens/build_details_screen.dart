@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:percent_indicator/circular_percent_indicator.dart';
 import '../app/theme.dart';
@@ -31,6 +32,11 @@ class _BuildDetailsScreenState extends State<BuildDetailsScreen> {
       appBar: AppBar(
         title: const Text('Build Details'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh',
+            onPressed: () => context.read<BuildDetailsController>().refresh(),
+          ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
             onSelected: (value) => _handleMenuAction(value),
@@ -76,7 +82,10 @@ class _BuildDetailsScreenState extends State<BuildDetailsScreen> {
                 _buildInfoCard(job),
                 _buildStepsSection(controller),
                 if (job.isSuccess) _buildDownloadSection(controller),
-                if (job.error != null) _buildErrorSection(job.error!),
+                if (job.isFailed || controller.logs != null || controller.isLoadingLogs)
+                  _buildLogsSection(controller),
+                if (job.error != null && controller.logs == null)
+                  _buildErrorSection(job.error!),
               ],
             ),
           );
@@ -148,7 +157,7 @@ class _BuildDetailsScreenState extends State<BuildDetailsScreen> {
                       color: AppTheme.textSecondary,
                     ),
                   ),
-                if (job.isRunning)
+                if (job.isRunning) ...[
                   Text(
                     'Step ${job.currentStep} / ${job.totalSteps}',
                     style: const TextStyle(
@@ -156,6 +165,17 @@ class _BuildDetailsScreenState extends State<BuildDetailsScreen> {
                       color: AppTheme.textSecondary,
                     ),
                   ),
+                  if (job.stepName != null)
+                    Text(
+                      job.stepName!,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppTheme.textSecondary,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                ],
               ],
             ),
           ),
@@ -181,10 +201,11 @@ class _BuildDetailsScreenState extends State<BuildDetailsScreen> {
           ),
           const SizedBox(height: 12),
           _infoRow('App Name', job.appName),
-          _infoRow('Package', job.packageName),
+          if (job.packageName.isNotEmpty) _infoRow('Package', job.packageName),
           _infoRow('Mode', job.buildMode),
-          _infoRow('Type', job.projectType),
+          _infoRow('Type', _readableProjectType(job.projectType)),
           if (job.runId != null) _infoRow('Run ID', job.runId!),
+          if (job.runNumber != null) _infoRow('Run #', '${job.runNumber}'),
           _infoRow('Job ID', job.jobId),
         ],
       ),
@@ -271,6 +292,87 @@ class _BuildDetailsScreenState extends State<BuildDetailsScreen> {
     );
   }
 
+  Widget _buildLogsSection(BuildDetailsController controller) {
+    return GlassCard(
+      margin: const EdgeInsets.all(16),
+      borderColor: AppTheme.errorColor.withOpacity(0.3),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.article_outlined, color: AppTheme.errorColor, size: 20),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Error Logs',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.errorColor,
+                  ),
+                ),
+              ),
+              if (controller.logs != null && controller.logs!.isNotEmpty)
+                IconButton(
+                  icon: const Icon(Icons.copy, size: 18),
+                  tooltip: 'Copy logs',
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: controller.logs!));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Logs copied to clipboard')),
+                    );
+                  },
+                )
+              else if (!controller.isLoadingLogs)
+                TextButton(
+                  onPressed: () => controller.fetchLogs(),
+                  child: const Text('Fetch logs'),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (controller.isLoadingLogs)
+            const Row(
+              children: [
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                SizedBox(width: 10),
+                Text(
+                  'Fetching logs...',
+                  style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                ),
+              ],
+            )
+          else if (controller.logs != null && controller.logs!.isNotEmpty)
+            Container(
+              width: double.infinity,
+              constraints: const BoxConstraints(maxHeight: 300),
+              child: SingleChildScrollView(
+                child: SelectableText(
+                  controller.logs!,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 11,
+                    color: AppTheme.textPrimary,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+            )
+          else
+            const Text(
+              'Logs are not available yet.',
+              style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildErrorSection(String error) {
     return GlassCard(
       margin: const EdgeInsets.all(16),
@@ -293,6 +395,12 @@ class _BuildDetailsScreenState extends State<BuildDetailsScreen> {
     );
   }
 
+  String _readableProjectType(String type) {
+    return type.split('_').map((w) => w.isNotEmpty
+        ? '${w[0].toUpperCase()}${w.substring(1)}'
+        : w).join(' ');
+  }
+
   String _formatDuration(Duration d) {
     if (d.inHours > 0) {
       return '${d.inHours}h ${d.inMinutes.remainder(60)}m';
@@ -310,13 +418,11 @@ class _BuildDetailsScreenState extends State<BuildDetailsScreen> {
 
     switch (action) {
       case 'logs':
-        if (job.runId != null) {
-          Navigator.pushNamed(
-            context,
-            AppRoutes.buildLogs,
-            arguments: {'runId': job.runId, 'jobId': job.jobId},
-          );
-        }
+        Navigator.pushNamed(
+          context,
+          AppRoutes.buildLogs,
+          arguments: {'runId': job.runId, 'jobId': job.jobId},
+        );
         break;
       case 'delete':
         final confirm = await showDialog<bool>(

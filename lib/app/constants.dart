@@ -32,6 +32,9 @@ class AppConstants {
   static const String typeReactNative = 'react_native';
   static const String typeExpo = 'expo';
   static const String typeNativeAndroid = 'native_android';
+  static const String typeCapacitor = 'capacitor';
+  static const String typeCordova = 'cordova';
+  static const String typeIonic = 'ionic';
 
   // Polling
   static const Duration pollInterval = Duration(seconds: 5);

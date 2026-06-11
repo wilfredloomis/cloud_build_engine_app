@@ -7,6 +7,7 @@ import '../models/upload_response.dart';
 import '../models/dispatch_response.dart';
 import '../models/build_status_response.dart';
 import '../models/artifact_response.dart';
+import '../models/build_logs_response.dart';
 
 class ApiService {
   String _baseUrl = AppConstants.apiBaseUrl;
@@ -80,8 +81,11 @@ class ApiService {
     );
   }
 
-  Future<BuildStatusResponse> getStatus(String runId) async {
-    final uri = Uri.parse('$_baseUrl/status?run_id=$runId');
+  Future<BuildStatusResponse> getStatus({String? runId, String? jobId}) async {
+    final params = <String, String>{};
+    if (runId != null) params['run_id'] = runId;
+    if (jobId != null) params['job_id'] = jobId;
+    final uri = Uri.parse('$_baseUrl/status').replace(queryParameters: params);
     final response = await http.get(uri);
     _checkResponse(response);
     return BuildStatusResponse.fromJson(
@@ -89,11 +93,26 @@ class ApiService {
     );
   }
 
-  Future<BuildStatusResponse> getJobLive(String runId) async {
-    final uri = Uri.parse('$_baseUrl/job-live?run_id=$runId');
+  Future<BuildStatusResponse> getJobLive({String? runId, String? jobId}) async {
+    final params = <String, String>{};
+    if (runId != null) params['run_id'] = runId;
+    if (jobId != null) params['job_id'] = jobId;
+    final uri = Uri.parse('$_baseUrl/job-live').replace(queryParameters: params);
     final response = await http.get(uri);
     _checkResponse(response);
     return BuildStatusResponse.fromJson(
+      json.decode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  Future<BuildLogsResponse> getLogs({String? runId, String? jobId}) async {
+    final params = <String, String>{};
+    if (runId != null) params['run_id'] = runId;
+    if (jobId != null) params['job_id'] = jobId;
+    final uri = Uri.parse('$_baseUrl/logs').replace(queryParameters: params);
+    final response = await http.get(uri);
+    _checkResponse(response);
+    return BuildLogsResponse.fromJson(
       json.decode(response.body) as Map<String, dynamic>,
     );
   }

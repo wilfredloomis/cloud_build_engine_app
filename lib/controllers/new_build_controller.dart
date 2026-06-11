@@ -132,13 +132,6 @@ class NewBuildController extends ChangeNotifier {
       return;
     }
 
-    if (_packageName.isEmpty) {
-      _error = 'Please enter a package name';
-      _state = BuildState.error;
-      notifyListeners();
-      return;
-    }
-
     try {
       // Step 1: Prepare upload
       _state = BuildState.uploading;
@@ -176,6 +169,7 @@ class NewBuildController extends ChangeNotifier {
       final job = BuildJob(
         jobId: prepare.jobId,
         runId: dispatch.runId,
+        runNumber: dispatch.runNumber,
         appName: _appName,
         packageName: _packageName,
         buildMode: _buildMode,

@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../app/theme.dart';
 import '../services/api_service.dart';
 
 class BuildLogsScreen extends StatefulWidget {
-  final String runId;
+  final String? runId;
   final String jobId;
 
   const BuildLogsScreen({
     super.key,
-    required this.runId,
+    this.runId,
     required this.jobId,
   });
 
@@ -18,7 +19,7 @@ class BuildLogsScreen extends StatefulWidget {
 }
 
 class _BuildLogsScreenState extends State<BuildLogsScreen> {
-  String _logs = 'Loading logs...';
+  String _logs = '';
   bool _isLoading = true;
   String? _error;
 
@@ -29,54 +30,51 @@ class _BuildLogsScreenState extends State<BuildLogsScreen> {
   }
 
   Future<void> _loadLogs() async {
-    try {
-      final api = context.read<ApiService>();
-      final status = await api.getJobLive(widget.runId);
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
 
-      final buffer = StringBuffer();
-      buffer.writeln('Build Run: ${widget.runId}');
-      buffer.writeln('Job ID: ${widget.jobId}');
-      buffer.writeln('Status: ${status.status}');
-      if (status.conclusion != null) {
-        buffer.writeln('Conclusion: ${status.conclusion}');
+    int retries = 0;
+    const maxRetries = 5;
+
+    while (retries <= maxRetries) {
+      if (retries > 0) {
+        await Future.delayed(const Duration(seconds: 8));
       }
-      buffer.writeln('');
-      buffer.writeln('=== Build Steps ===');
-      buffer.writeln('');
 
-      if (status.steps != null) {
-        for (final step in status.steps!) {
-          final icon = step.isSuccess
-              ? '✓'
-              : step.isFailed
-                  ? '✗'
-                  : step.isRunning
-                      ? '►'
-                      : step.isSkipped
-                          ? '⊘'
-                          : '○';
-          buffer.writeln('  $icon [${step.number}] ${step.name}');
-          if (step.conclusion != null) {
-            buffer.writeln('    Status: ${step.conclusion}');
-          }
+      try {
+        final api = context.read<ApiService>();
+        final logsResponse = await api.getLogs(
+          runId: widget.runId,
+          jobId: widget.jobId,
+        );
+
+        if (!logsResponse.ready && retries < maxRetries) {
+          retries++;
+          continue;
         }
-      }
 
-      if (status.error != null) {
-        buffer.writeln('');
-        buffer.writeln('=== Error ===');
-        buffer.writeln(status.error);
-      }
+        setState(() {
+          _logs = logsResponse.log.isNotEmpty
+              ? logsResponse.log
+              : 'No logs available for this build.';
+          _isLoading = false;
+        });
+        return;
+      } catch (e) {
+        final notReady = e.toString().contains('not ready');
+        if (notReady && retries < maxRetries) {
+          retries++;
+          continue;
+        }
 
-      setState(() {
-        _logs = buffer.toString();
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _error = 'Failed to load logs: $e';
-        _isLoading = false;
-      });
+        setState(() {
+          _error = 'Failed to load logs: $e';
+          _isLoading = false;
+        });
+        return;
+      }
     }
   }
 
@@ -86,20 +84,37 @@ class _BuildLogsScreenState extends State<BuildLogsScreen> {
       appBar: AppBar(
         title: const Text('Build Logs'),
         actions: [
+          if (_logs.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.copy),
+              tooltip: 'Copy logs',
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: _logs));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Logs copied to clipboard')),
+                );
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () {
-              setState(() {
-                _isLoading = true;
-                _error = null;
-              });
-              _loadLogs();
-            },
+            onPressed: _loadLogs,
           ),
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text(
+                    'Fetching logs...',
+                    style: TextStyle(color: AppTheme.textSecondary),
+                  ),
+                ],
+              ),
+            )
           : _error != null
               ? Center(
                   child: Padding(
@@ -115,27 +130,35 @@ class _BuildLogsScreenState extends State<BuildLogsScreen> {
                           textAlign: TextAlign.center,
                           style: const TextStyle(color: AppTheme.errorColor),
                         ),
+                        const SizedBox(height: 16),
+                        ElevatedButton(
+                          onPressed: _loadLogs,
+                          child: const Text('Retry'),
+                        ),
                       ],
                     ),
                   ),
                 )
               : SingleChildScrollView(
                   padding: const EdgeInsets.all(16),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: AppTheme.cardColor,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppTheme.dividerColor),
-                    ),
-                    child: SelectableText(
-                      _logs,
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 12,
-                        color: AppTheme.textPrimary,
-                        height: 1.5,
+                  scrollDirection: Axis.vertical,
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppTheme.cardColor,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppTheme.dividerColor),
+                      ),
+                      child: SelectableText(
+                        _logs,
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 12,
+                          color: AppTheme.textPrimary,
+                          height: 1.5,
+                        ),
                       ),
                     ),
                   ),

@@ -121,7 +121,7 @@ class _NewBuildScreenState extends State<NewBuildScreen> {
                 ),
                 SizedBox(height: 2),
                 Text(
-                  'Select a ZIP file containing your Flutter, React Native, Expo, or Native Android project.',
+                  'Select a ZIP file containing your Flutter, React Native, Expo, Capacitor, Cordova, Ionic, or Native Android project.',
                   style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                 ),
               ],
@@ -219,6 +219,9 @@ class _NewBuildScreenState extends State<NewBuildScreen> {
               _buildTypeChip('Flutter', AppConstants.typeFlutter, controller),
               _buildTypeChip('React Native', AppConstants.typeReactNative, controller),
               _buildTypeChip('Native', AppConstants.typeNativeAndroid, controller),
+              _buildTypeChip('Capacitor', AppConstants.typeCapacitor, controller),
+              _buildTypeChip('Cordova', AppConstants.typeCordova, controller),
+              _buildTypeChip('Ionic', AppConstants.typeIonic, controller),
             ],
           ),
 
